@@ -8,7 +8,6 @@ on:
   workflow_dispatch:
 
 env:
-  ANDROID_SDK_ROOT: ${{ runner.home }}/android-sdk
   NDK_VERSION: "21.4.7075529"
 
 jobs:
@@ -18,7 +17,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # JDK17 required by recent sdkmanager
       - name: Setup JDK 17 (for sdkmanager)
         uses: actions/setup-java@v4
         with:
@@ -32,7 +30,6 @@ jobs:
           mkdir -p "$SDKROOT"
           cd "$SDKROOT"
 
-          # download commandline-tools (pick a stable release compatible with sdkmanager)
           TOOL_URL="https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip"
           wget -q "$TOOL_URL" -O cmdline-tools.zip
           unzip -q cmdline-tools.zip -d temp
@@ -40,16 +37,13 @@ jobs:
           # Normalize into $SDKROOT/cmdline-tools/latest
           mkdir -p cmdline-tools
           if [ -d temp/cmdline-tools ]; then
-            # some zips include top-level cmdline-tools/
             rm -rf cmdline-tools/latest || true
             mv temp/cmdline-tools cmdline-tools/latest
           else
-            # other zips extract top-level files (fallback)
             mkdir -p cmdline-tools/latest
             mv temp/* cmdline-tools/latest/ || true
           fi
 
-          # ensure platform-tools placeholder dir exists; will be installed next
           mkdir -p platform-tools
 
           # export env so subsequent steps can use sdkmanager
@@ -58,15 +52,13 @@ jobs:
           echo "$SDKROOT/platform-tools" >> $GITHUB_PATH
 
       - name: Accept Android SDK licenses
-        run: |
-          yes | sdkmanager --licenses
+        run: yes | sdkmanager --licenses
 
       - name: Install Android packages (platform-tools, build-tools, NDK, cmake)
         run: |
           sdkmanager "platform-tools" "platforms;android-33" "build-tools;30.0.3" \
                     "ndk;${{ env.NDK_VERSION }}" "cmake;3.22.1"
 
-      # Switch back to JDK8 for Haxe/Gradle compatibility with this old project
       - name: Setup JDK 8 (for Gradle / Haxe)
         uses: actions/setup-java@v4
         with:
@@ -81,9 +73,7 @@ jobs:
           sudo add-apt-repository -y ppa:haxe/releases
           sudo apt-get update -y
           sudo apt-get install -y haxe
-
           mkdir -p $HOME/.haxelib
-          # install libs used in compile.hxml
           haxelib install heaps
           haxelib install hlsdl
 
@@ -97,7 +87,6 @@ jobs:
         working-directory: app/src/main/haxe
         run: |
           set -e
-          # run compile
           haxe compile.hxml
 
       - name: Inspect generated native output (debug)
@@ -134,10 +123,11 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build Debug APK (Gradle)
-        run: ./gradlew assembleDebug --stacktrace
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          # ensure Gradle and native tools can find SDK
+          export ANDROID_HOME="$HOME/android-sdk"
+          export ANDROID_SDK_ROOT="$HOME/android-sdk"
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
