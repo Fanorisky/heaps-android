@@ -87,13 +87,12 @@ jobs:
           haxelib install hashlink
           haxelib install heaps
           haxelib install hlsdl
-          # hxcpp is optional but helpful
           haxelib install hxcpp || true
 
           echo "haxelib list:"
           haxelib list || true
 
-      - name: Replace OpenAL-soft with latest and patch for Android (adds dummy macro)
+      - name: Replace OpenAL-soft with latest and patch for Android (insert dummy macro, clean CMake)
         run: |
           set -e
           CPP_DIR="app/src/main/cpp"
@@ -111,6 +110,13 @@ jobs:
 
           CMAKE_FILE="$OLDDIR/CMakeLists.txt"
           if [ -f "$CMAKE_FILE" ]; then
+            echo "Inserting dummy CHECK_FILE_OFFSET_BITS macro at top of $CMAKE_FILE"
+            TMPFILE="$(mktemp)"
+            # Define dummy macro BEFORE file contents, so any subsequent CHECK_FILE_OFFSET_BITS() call won't error
+            echo -e "macro(CHECK_FILE_OFFSET_BITS)\nendmacro()\n" > "$TMPFILE"
+            cat "$CMAKE_FILE" >> "$TMPFILE"
+            mv "$TMPFILE" "$CMAKE_FILE"
+
             echo "Prepending Android/disable flags to $CMAKE_FILE"
             TMPFILE="$(mktemp)"
             printf "%s\n" \
@@ -123,14 +129,17 @@ jobs:
             cat "$CMAKE_FILE" >> "$TMPFILE"
             mv "$TMPFILE" "$CMAKE_FILE"
 
-            echo "Adding dummy CHECK_FILE_OFFSET_BITS macro (to avoid unknown command error)"
-            # Append a dummy macro definition to prevent CMake failing on CHECK_FILE_OFFSET_BITS
-            echo -e "\nif(ANDROID)\n  macro(CHECK_FILE_OFFSET_BITS)\n  endmacro()\nendif()\n" >> "$CMAKE_FILE"
-
-            echo "Patched $CMAKE_FILE; head:"
-            head -n 40 "$CMAKE_FILE" || true
+            echo "Patched $CMAKE_FILE; head (first 60 lines):"
+            head -n 60 "$CMAKE_FILE" || true
           else
             echo "Warning: openal CMakeLists not found at $CMAKE_FILE"
+          fi
+
+          # Remove previous CMake build to avoid cached config using old OpenAL
+          BUILD_DIR="$CPP_DIR/build-android"
+          if [ -d "$BUILD_DIR" ]; then
+            echo "Removing previous CMake build dir: $BUILD_DIR"
+            rm -rf "$BUILD_DIR"
           fi
 
       - name: Show compile.hxml (for debug)
