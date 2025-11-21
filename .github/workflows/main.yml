@@ -1,58 +1,63 @@
-name: Android Build (POC)
+name: Build Heaps Android POC
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
+  pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup Java 8
-      uses: actions/setup-java@v4
-      with:
-        distribution: temurin
-        java-version: 8
+      # Install Java 17
+      - name: Install JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Install Android SDK (manual, FIXED)
-      run: |
-        export ANDROID_HOME=$HOME/android-sdk
-        mkdir -p $ANDROID_HOME
+      # Download Android Cmdline Tools (latest)
+      - name: Install Android cmdline-tools
+        run: |
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          cd $HOME/android-sdk/cmdline-tools
 
-        cd $ANDROID_HOME
-        wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O tools.zip
+          wget https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip
+          unzip commandlinetools-linux-*.zip -d temp
 
-        mkdir temp
-        unzip tools.zip -d temp
+          # Google requires folder name "latest"
+          mv temp/cmdline-tools latest
 
-        mkdir -p cmdline-tools/latest
-        mv temp/*/* cmdline-tools/latest/
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
 
-        echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+      # Accept licenses
+      - name: Accept licenses
+        run: yes | sdkmanager --licenses
 
-        yes | sdkmanager --licenses
+      # Install required Android components
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2" \
+                     "ndk;21.4.7075529" "cmake;3.22.1"
 
-    - name: Install platform + build-tools + NDK
-      run: |
-        sdkmanager "platform-tools" \
-                   "platforms;android-33" \
-                   "build-tools;30.0.3" \
-                   "ndk;21.4.7075529"
+      # Install Haxe + hxcpp
+      - name: Install Haxe
+        run: |
+          sudo add-apt-repository ppa:haxe/releases -y
+          sudo apt-get update
+          sudo apt-get install -y haxe
+          mkdir -p ~/.haxelib
 
-    - name: Downgrade Gradle wrapper to 6.8.3
-      run: ./gradlew wrapper --gradle-version 6.8.3
+          haxelib install hxcpp
+          haxelib install heaps
 
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: apk
-        path: app/build/outputs/apk/debug/*.apk
+      # Build your heaps android project
+      - name: Build project
+        run: |
+          haxe build.hxml   # ganti dengan hxml milik repository itu
