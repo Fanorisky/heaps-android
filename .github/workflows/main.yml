@@ -83,7 +83,7 @@ jobs:
           chmod -R a+rw $HOME/.haxelib
 
           # Install required haxelib packages.
-          haxelib git hashlink https://github.com/HaxeFoundation/hashlink
+          haxelib install hashlink
           haxelib install heaps
           haxelib install hlsdl
           haxelib install hxcpp || true
