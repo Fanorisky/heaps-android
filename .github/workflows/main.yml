@@ -5,7 +5,6 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
 
 env:
   NDK_VERSION: "21.4.7075529"
@@ -83,15 +82,17 @@ jobs:
           chmod -R a+rw $HOME/.haxelib
 
           # Install required haxelib packages.
+          # Use git install for hashlink for compatibility with older projects.
           haxelib install hashlink
           haxelib install heaps
           haxelib install hlsdl
+          # hxcpp is optional but helpful
           haxelib install hxcpp || true
 
           echo "haxelib list:"
           haxelib list || true
 
-      - name: Replace OpenAL-soft with latest and patch for Android
+      - name: Replace OpenAL-soft with latest and patch for Android (adds dummy macro)
         run: |
           set -e
           CPP_DIR="app/src/main/cpp"
@@ -107,20 +108,26 @@ jobs:
           echo "Moving into $OLDDIR"
           mv "$NEWTMP" "$OLDDIR"
 
-          echo "Prepending Android/disable flags to openal CMakeLists.txt"
           CMAKE_FILE="$OLDDIR/CMakeLists.txt"
           if [ -f "$CMAKE_FILE" ]; then
+            echo "Prepending Android/disable flags to $CMAKE_FILE"
             TMPFILE="$(mktemp)"
-            printf "%s\n" "set(ALSOFT_REQUIRE_ANDROID ON)" \
-                         "set(ALSOFT_UTILS OFF)" \
-                         "set(ALSOFT_EXAMPLES OFF)" \
-                         "set(ALSOFT_TESTS OFF)" \
-                         "set(ALSOFT_CONFIG OFF)" \
-                         "set(ALSOFT_HRTF_DEFS OFF)" > "$TMPFILE"
+            printf "%s\n" \
+              "set(ALSOFT_REQUIRE_ANDROID ON)" \
+              "set(ALSOFT_UTILS OFF)" \
+              "set(ALSOFT_EXAMPLES OFF)" \
+              "set(ALSOFT_TESTS OFF)" \
+              "set(ALSOFT_CONFIG OFF)" \
+              "set(ALSOFT_HRTF_DEFS OFF)" > "$TMPFILE"
             cat "$CMAKE_FILE" >> "$TMPFILE"
             mv "$TMPFILE" "$CMAKE_FILE"
+
+            echo "Adding dummy CHECK_FILE_OFFSET_BITS macro (to avoid unknown command error)"
+            # Append a dummy macro definition to prevent CMake failing on CHECK_FILE_OFFSET_BITS
+            echo -e "\nif(ANDROID)\n  macro(CHECK_FILE_OFFSET_BITS)\n  endmacro()\nendif()\n" >> "$CMAKE_FILE"
+
             echo "Patched $CMAKE_FILE; head:"
-            head -n 20 "$CMAKE_FILE" || true
+            head -n 40 "$CMAKE_FILE" || true
           else
             echo "Warning: openal CMakeLists not found at $CMAKE_FILE"
           fi
