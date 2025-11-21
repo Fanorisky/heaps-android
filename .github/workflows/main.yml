@@ -1,4 +1,4 @@
-name: Heaps Android POC Build (override openal & hashlink)
+name: Heaps Android Build
 
 on:
   push:
@@ -15,196 +15,126 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17 (required for sdkmanager)
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Install Android commandline tools (robust) and add to PATH
+      - name: Install Android commandline tools
         run: |
           set -e
           SDKROOT="$HOME/android-sdk"
           mkdir -p "$SDKROOT"
           cd "$SDKROOT"
 
-          TOOL_URL="https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip"
-          echo "Downloading $TOOL_URL"
-          wget -q "$TOOL_URL" -O cmdline-tools.zip
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip -O tools.zip
+          unzip -q tools.zip -d temp
 
-          rm -rf temp cmdline-tools || true
-          unzip -q cmdline-tools.zip -d temp || ( echo "unzip failed" && exit 1 )
-
-          # Normalize into cmdline-tools/latest/
           mkdir -p cmdline-tools
-          if [ -d temp/cmdline-tools ]; then
-            rm -rf cmdline-tools/latest || true
-            mv temp/cmdline-tools cmdline-tools/latest
-          else
-            mkdir -p cmdline-tools/latest
-            mv temp/* cmdline-tools/latest/ || true
-          fi
+          mv temp/cmdline-tools cmdline-tools/latest || mv temp cmdline-tools/latest
 
           mkdir -p platform-tools
 
-          # expose to subsequent steps
           echo "ANDROID_SDK_ROOT=$SDKROOT" >> $GITHUB_ENV
           echo "$SDKROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$SDKROOT/platform-tools" >> $GITHUB_PATH
 
-      - name: Accept Android SDK licenses
+      - name: Accept licenses
         run: yes | sdkmanager --licenses
 
-      - name: Install Android packages (platform-tools, build-tools, NDK, cmake)
+      - name: Install Android packages
         run: |
-          set -e
-          sdkmanager "platform-tools" "platforms;android-33" "build-tools;30.0.3" \
-                    "ndk;${{ env.NDK_VERSION }}" "cmake;3.22.1"
+          sdkmanager "platform-tools" \
+                     "platforms;android-33" \
+                     "build-tools;30.0.3" \
+                     "ndk;${{ env.NDK_VERSION }}" \
+                     "cmake;3.22.1"
 
-      # switch to JDK8 for Haxe/Gradle compatibility on this old project
-      - name: Setup JDK 8 (for Haxe and Gradle)
+      - name: Setup JDK 8 (for Haxe/Gradle)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '8'
+          java-version: "8"
 
-      - name: Install Haxe and haxelib libs (hashlink from git)
+      - name: Install Haxe + haxelib
         run: |
-          set -e
           sudo apt-get update -y
-          sudo apt-get install -y software-properties-common apt-transport-https lsb-release wget git
+          sudo apt-get install -y software-properties-common git wget
           sudo add-apt-repository -y ppa:haxe/releases
           sudo apt-get update -y
           sudo apt-get install -y haxe
 
-          # ensure haxelib home exists and is writable
           mkdir -p $HOME/.haxelib
           chmod -R a+rw $HOME/.haxelib
 
-          # Install required haxelib packages.
-          # Use git install for hashlink for compatibility with older projects.
           haxelib git hashlink https://github.com/HaxeFoundation/hashlink
           haxelib install heaps
           haxelib install hlsdl
           haxelib install hxcpp || true
 
-          echo "haxelib list:"
-          haxelib list || true
-
-      - name: Replace OpenAL-soft with latest and patch for Android
+      - name: Replace OpenAL-soft with latest
         run: |
-          set -e
           CPP_DIR="app/src/main/cpp"
           OLDDIR="$CPP_DIR/openal-soft"
           NEWTMP="$CPP_DIR/openal-soft-new"
 
-          echo "Removing old OpenAL-soft (if exists): $OLDDIR"
           rm -rf "$OLDDIR" || true
-
-          echo "Cloning openal-soft (shallow)..."
           git clone --depth=1 https://github.com/kcat/openal-soft "$NEWTMP"
-
-          echo "Moving into $OLDDIR"
           mv "$NEWTMP" "$OLDDIR"
 
-          echo "Prepending Android/disable flags to openal CMakeLists.txt"
           CMAKE_FILE="$OLDDIR/CMakeLists.txt"
           if [ -f "$CMAKE_FILE" ]; then
-            # Insert flags at top
-            TMPFILE="$(mktemp)"
-            printf "%s\n" "set(ALSOFT_REQUIRE_ANDROID ON)" \
-                         "set(ALSOFT_UTILS OFF)" \
-                         "set(ALSOFT_EXAMPLES OFF)" \
-                         "set(ALSOFT_TESTS OFF)" \
-                         "set(ALSOFT_CONFIG OFF)" \
-                         "set(ALSOFT_HRTF_DEFS OFF)" > "$TMPFILE"
-            cat "$CMAKE_FILE" >> "$TMPFILE"
-            mv "$TMPFILE" "$CMAKE_FILE"
-            echo "Patched $CMAKE_FILE; head:"
-            head -n 20 "$CMAKE_FILE" || true
-          else
-            echo "Warning: openal CMakeLists not found at $CMAKE_FILE"
+            TMP="$(mktemp)"
+            echo "set(ALSOFT_REQUIRE_ANDROID ON)
+set(ALSOFT_UTILS OFF)
+set(ALSOFT_EXAMPLES OFF)
+set(ALSOFT_TESTS OFF)
+set(ALSOFT_CONFIG OFF)
+set(ALSOFT_HRTF_DEFS OFF)
+" > "$TMP"
+            cat "$CMAKE_FILE" >> "$TMP"
+            mv "$TMP" "$CMAKE_FILE"
           fi
 
-      - name: Debug: show top-level structure
-        run: |
-          echo "=== repo root listing ==="
-          ls -la
-          echo "=== cpp dir listing ==="
-          ls -la app/src/main/cpp || true
-
-      - name: Show compile.hxml (for debug)
-        run: |
-          echo "---- compile.hxml ----"
-          sed -n '1,200p' app/src/main/haxe/compile.hxml || true
-          echo "----------------------"
-
-      - name: Run Haxe compile.hxml (working dir)
+      - name: Haxe compile
         working-directory: app/src/main/haxe
+        run: haxe compile.hxml
+
+      - name: Build native via CMake
         run: |
-          set -e
-          haxe compile.hxml
+          NDK="$HOME/android-sdk/ndk/${{ env.NDK_VERSION }}"
+          SRC="app/src/main/cpp"
+          BUILD="$SRC/build"
 
-      - name: Inspect generated native output (debug)
-        run: |
-          echo "Listing app/src/main/cpp/out (if exists):"
-          ls -la app/src/main/cpp/out || true
-          echo "Listing app/src/main/cpp:"
-          ls -la app/src/main/cpp || true
-
-      - name: Build native with CMake (if CMakeLists.txt exists)
-        run: |
-          set -e
-          NDK_ROOT="$HOME/android-sdk/ndk/${{ env.NDK_VERSION }}"
-          SRC_DIR="$(pwd)/app/src/main/cpp"
-          BUILD_DIR="$SRC_DIR/build-android"
-
-          echo "NDK_ROOT=$NDK_ROOT"
-          if [ -z "$NDK_ROOT" ]; then
-            echo "NDK_ROOT empty; abort"
-            exit 1
-          fi
-
-          if [ -f "$SRC_DIR/CMakeLists.txt" ]; then
-            mkdir -p "$BUILD_DIR"
-            cd "$BUILD_DIR"
+          if [ -f "$SRC/CMakeLists.txt" ]; then
+            mkdir -p "$BUILD"
+            cd "$BUILD"
 
             cmake \
-              -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
+              -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
               -DANDROID_ABI=arm64-v8a \
               -DANDROID_PLATFORM=android-21 \
-              -DANDROID_NDK="$NDK_ROOT" \
               -DCMAKE_BUILD_TYPE=Release \
-              -DALSOFT_REQUIRE_ANDROID=ON \
-              -DALSOFT_UTILS=OFF \
-              -DALSOFT_EXAMPLES=OFF \
-              -DALSOFT_TESTS=OFF \
-              -DALSOFT_CONFIG=OFF \
-              -DALSOFT_HRTF_DEFS=OFF \
-              "$SRC_DIR"
+              "$SRC"
 
             cmake --build . -- -j$(nproc)
-          else
-            echo "No CMakeLists.txt found in $SRC_DIR — skipping CMake build."
           fi
 
       - name: Make gradlew executable
-        run: chmod +x ./gradlew || true
+        run: chmod +x ./gradlew
 
-      - name: Build Debug APK (Gradle)
-        run: |
-          set -e
-          export ANDROID_HOME="$HOME/android-sdk"
-          export ANDROID_SDK_ROOT="$HOME/android-sdk"
-          ./gradlew assembleDebug --stacktrace
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
         env:
-          JAVA_HOME: ${{ runner.temp }} # placeholder to avoid GitHub warning; actual JDK in PATH from setup-java
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: heaps-android-poc-apk
+          name: heaps-android-apk
           path: app/build/outputs/apk/debug/*.apk
