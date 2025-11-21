@@ -76,6 +76,7 @@ jobs:
           mkdir -p $HOME/.haxelib
           haxelib install heaps
           haxelib install hlsdl
+          haxelib install hashlink
 
       - name: Show compile.hxml (debug)
         run: |
