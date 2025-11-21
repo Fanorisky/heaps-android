@@ -19,44 +19,40 @@ jobs:
         distribution: temurin
         java-version: 8
 
-    - name: Install Android SDK (manual)
+    - name: Install Android SDK (manual, FIXED)
       run: |
-        mkdir -p $HOME/android-sdk
-        cd $HOME/android-sdk
-        
-        wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdtools.zip
-        unzip cmdtools.zip -d cmdline-tools
-        mkdir -p cmdline-tools/latest
-        mv cmdline-tools/* cmdline-tools/latest || true
-
         export ANDROID_HOME=$HOME/android-sdk
-        export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
+        mkdir -p $ANDROID_HOME
+
+        cd $ANDROID_HOME
+        wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O tools.zip
+
+        mkdir temp
+        unzip tools.zip -d temp
+
+        mkdir -p cmdline-tools/latest
+        mv temp/*/* cmdline-tools/latest/
+
         echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-        echo "PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH" >> $GITHUB_ENV
+        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
 
         yes | sdkmanager --licenses
 
-    - name: Install platform + build-tools + NDK old
+    - name: Install platform + build-tools + NDK
       run: |
-        export ANDROID_HOME=$HOME/android-sdk
-        export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
-        
-        yes | sdkmanager "platform-tools" \
-                         "platforms;android-33" \
-                         "build-tools;30.0.3" \
-                         "ndk;21.4.7075529"
+        sdkmanager "platform-tools" \
+                   "platforms;android-33" \
+                   "build-tools;30.0.3" \
+                   "ndk;21.4.7075529"
 
     - name: Downgrade Gradle wrapper to 6.8.3
       run: ./gradlew wrapper --gradle-version 6.8.3
 
-    - name: Make gradlew executable
-      run: chmod +x gradlew
-
     - name: Build Debug APK
       run: ./gradlew assembleDebug --stacktrace
 
-    - name: Upload APK artifact
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: HeapsAndroidPOC
+        name: apk
         path: app/build/outputs/apk/debug/*.apk
